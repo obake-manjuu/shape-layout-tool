@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>図形・アイコン配置 ＆ 距離計測ツール</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; display: flex; height: 100vh; background: #f0f2f5; color: #333; overflow: hidden; }
+        #sidebar { width: 330px; background: #fff; border-right: 1px solid #e0e0e0; padding: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: 2px 0 8px rgba(0,0,0,0.05); z-index: 10; overflow-y: auto; }
+        h2 { font-size: 16px; color: #1a1a1a; border-bottom: 2px solid #4a90e2; padding-bottom: 6px; }
+        .section-title { font-size: 11px; font-weight: bold; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        button { padding: 8px 10px; background: #f5f7fa; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 12px; font-weight: 600; color: #344054; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 4px; }
+        button:hover { background: #e8eef8; border-color: #4a90e2; color: #1d63b8; }
+        button.active { background: #4a90e2; color: #fff; border-color: #357abd; }
+        button.success { background: #f6ffed; border-color: #b7eb8f; color: #389e0d; }
+        button.success:hover { background: #52c41a; color: #fff; }
+        button.danger { background: #fff1f0; border-color: #ffa39e; color: #cf1322; }
+        button.danger:hover { background: #ff4d4f; color: #fff; }
+        .layer-list { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 4px; }
+        .layer-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-radius: 4px; background: #fff; border: 1px solid #e0e0e0; cursor: pointer; font-size: 12px; }
+        .layer-item:hover { background: #f0f7ff; }
+        .layer-item.active { background: #e6f7ff; border-color: #1890ff; font-weight: bold; color: #096dd9; }
+        .layer-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .layer-actions { display: flex; gap: 4px; }
+        .layer-btn { padding: 2px 6px; font-size: 10px; height: auto; }
+        .toggle-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+        .toggle-item { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; }
+        .toggle-item input { cursor: pointer; width: 16px; height: 16px; }
+        .measure-list { max-height: 120px; overflow-y: auto; background: #fafafa; border: 1px solid #eee; border-radius: 6px; padding: 6px; font-size: 11px; font-family: monospace; }
+        .measure-item { padding: 4px 0; border-bottom: 1px dashed #ddd; }
+        .measure-item:last-child { border-bottom: none; }
+        .count-tag { display: inline-block; background: #e6f7ff; color: #1890ff; padding: 1px 4px; border-radius: 3px; font-weight: bold; font-size: 10px; }
+        .count-tag.alert { background: #fff1f0; color: #ff4d4f; border: 1px solid #ffa39e; }
+        #canvas-container { flex: 1; position: relative; background: #eef2f6; overflow: hidden; }
+        canvas { display: block; background: #ffffff; }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+<div id="sidebar">
+    <h2>配置 ＆ 自動スナップ計測</h2>
+    <div class="section-title">1. 視点・ズーム操作</div>
+    <div class="btn-group">
+        <button id="btn-pan-mode" onclick="togglePanMode()">🖐 視点移動モード</button>
+        <button onclick="resetView()">🎯 原点(0,0)へ</button>
+    </div>
+    <div class="btn-group" style="margin-top: 4px;">
+        <button onclick="zoomIn()">✚ 拡大</button>
+        <button onclick="zoomOut()">➖ 縮小</button>
+    </div>
+    <div style="font-size: 11px; color: #666; text-align: center; font-weight: bold;">
+        倍率: <span id="zoom-val">100</span>%
+    </div>
+    <div class="section-title">2. 階層（レイヤー）管理</div>
+    <div id="layer-list" class="layer-list"></div>
+    <button onclick="addLayer()" style="width: 100%;">＋ 階層を追加</button>
+    <div class="section-title">3. 操作・編集 (<span id="current-layer-name-display">1階</span>)</div>
+    <div style="font-size: 11px; color: #666; background: #f8fafc; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0; line-height: 1.5;">
+        ・パレットからドラッグで要素追加。<br>
+        ・旗を置くと接続図形全体を管理。<br>
+        ・<strong>右クリックドラッグ</strong>で視点移動。
+    </div>
+    <div class="btn-group" style="margin-top: 4px;">
+        <button onclick="rotateSelected()">↻ 回転 (+15°)</button>
+        <button class="danger" onclick="deleteSelected()">▤ 選択削除</button>
+    </div>
+    <button class="danger" onclick="clearAll()" style="width: 100%;">選択中の階層を全消去</button>
+    <div class="section-title">4. 表示切り替え</div>
+    <div class="toggle-box">
+        <label class="toggle-item"><span>原点（0, 0）マークを表示</span><input type="checkbox" id="show-origin" checked onchange="safeDraw()"></label>
+        <label class="toggle-item"><span>下の階層を薄く表示（ゴースト）</span><input type="checkbox" id="show-ghost" checked onchange="safeDraw()"></label>
+        <label class="toggle-item"><span>30m 前方半円を表示</span><input type="checkbox" id="show-fov" checked onchange="safeDraw()"></label>
+        <label class="toggle-item"><span>40m 周囲円を表示</span><input type="checkbox" id="show-area" checked onchange="safeDraw()"></label>
+        <label class="toggle-item"><span>図形外郭23mエリアを表示</span><input type="checkbox" id="show-flag-area" checked onchange="safeDraw()"></label>
+    </div>
+    <div class="section-title">5. カウント・警告情報（現階層）</div>
+    <div id="measurements" class="measure-list"><div style="color: #999; text-align: center;">要素が配置されていません</div></div>
+    <div class="section-title">6. 保存・復元</div>
+    <div class="btn-group">
+        <button class="success" onclick="saveToFile()">💾 JSON保存</button>
+        <button onclick="document.getElementById('file-input').click()">📂 開く</button>
+    </div>
+    <input type="file" id="file-input" accept=".json" onchange="loadFromFile(event)">
+</div>
+<div id="canvas-container"><canvas id="stage"></canvas></div>
+<script>
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const container = document.getElementById('canvas-container');
+const SCALE = 10;
+const SIDE_LEN = 3 * SCALE;
+const BAR_LENGTH = 6.0 * SCALE;
+const BAR_THICKNESS = 0.5 * SCALE;
+const FOV_RADIUS = 30 * SCALE;
+const AREA_RADIUS = 40 * SCALE;
+const FLAG_AREA_RADIUS = 23 * SCALE;
+const SNAP_DIST = 20;
+const ROTATE_HANDLE_OFFSET = 35;
+const HANDLE_RADIUS = 10;
+const PALETTE_HEIGHT = 80;
+const PALETTE_ITEMS = [
+    { type: 'square', label: '正方形 (3m)', x: 60, y: 40 },
+    { type: 'triangle', label: '三角形 (3m)', x: 160, y: 40 },
+    { type: 'bar', label: '壁 (6.0x0.5m)', x: 265, y: 40 },
+    { type: 'icon', label: 'アイコン', x: 370, y: 40 },
+    { type: 'flag', label: '旗 (外郭23m)', x: 470, y: 40 }
+];
+
+let width = container.clientWidth;
+let height = container.clientHeight;
+canvas.width = width;
+canvas.height = height;
+let panX = width / 2;
+let panY = height / 2;
+let zoom = 1.0;
+let isPanMode = false;
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+window.addEventListener('resize', () => {
+    width = container.clientWidth;
+    height = container.clientHeight;
+    canvas.width = width;
+    canvas.height = height;
+    safeDraw();
+});
+
+function screenToWorld(sx, sy) {
+    return {
+        x: (sx - panX) / zoom,
+        y: (sy - panY) / zoom
+    };
+}
+
+function resetView() {
+    panX = width / 2;
+    panY = height / 2;
+    zoom = 1.0;
+    updateZoomDisplay();
+    safeDraw();
+}
+
+function togglePanMode() {
+    isPanMode = !isPanMode;
+    document.getElementById('btn-pan-mode').classList.toggle('active', isPanMode);
+    canvas.style.cursor = isPanMode ? 'grab' : 'crosshair';
+}
+
+function zoomIn() {
+    zoom = Math.min(zoom * 1.2, 5.0);
+    updateZoomDisplay();
+    safeDraw();
+}
+
+function zoomOut() {
+    zoom = Math.max(zoom / 1.2, 0.2);
+    updateZoomDisplay();
+    safeDraw();
+}
+
+function updateZoomDisplay() {
+    document.getElementById('zoom-val').textContent = Math.round(zoom * 100);
+}
+
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseSx = e.clientX - rect.left;
+    const mouseSy = e.clientY - rect.top;
+    const beforeWorld = screenToWorld(mouseSx, mouseSy);
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    zoom = Math.min(Math.max(zoom * zoomFactor, 0.1), 5.0);
+    panX = mouseSx - beforeWorld.x * zoom;
+    panY = mouseSy - beforeWorld.y * zoom;
+    updateZoomDisplay();
+    safeDraw();
+}, { passive: false });
+
+function num(val, fallback = 0) {
+    return (typeof val === 'number' && !isNaN(val) && isFinite(val)) ? val : fallback;
+}
+
+let layers = [
+    { id: 'layer-1', name: '1階', elements: [] }
+];
+let activeLayerId = 'layer-1';
+let selectedElement = null;
+let isDragging = false;
+let isRotating = false;
+let isPanning = false;
+let isDraggingFromPalette = false;
+let dragOffset = { x: 0, y: 0 };
+let panStart = { x: 0, y: 0 };
+let idCounter = 1;
+
+function getNextId() {
+    return idCounter++;
+}
+
+function getActiveLayer() {
+    return layers.find(l => l.id === activeLayerId) || layers[0];
+}
+
+function renderLayerList() {
+    const listEl = document.getElementById('layer-list');
+    listEl.innerHTML = '';
+    layers.forEach(layer => {
+        const item = document.createElement('div');
+        item.className = `layer-item ${layer.id === activeLayerId ? 'active' : ''}`;
+        item.onclick = () => switchLayer(layer.id);
+        const nameEl = document.createElement('span');
+        nameEl.className = 'layer-name';
+        nameEl.textContent = layer.name;
+        nameEl.ondblclick = (e) => {
+            e.stopPropagation();
+            renameLayer(layer.id);
+        };
+        const actions = document.createElement('div');
+        actions.className = 'layer-actions';
+        const editBtn = document.createElement('button');
+        editBtn.className = 'layer-btn';
+        editBtn.textContent = '✎';
+        editBtn.onclick = (e) => {
+            e.stopPropagation();
+            renameLayer(layer.id);
+        };
+        actions.appendChild(editBtn);
+        if (layers.length > 1) {
+            const delBtn = document.createElement('button');
+            delBtn.className = 'layer-btn danger';
+            delBtn.textContent = 'x';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteLayer(layer.id);
+            };
+            actions.appendChild(delBtn);
+        }
+        item.appendChild(nameEl);
+        item.appendChild(actions);
+        listEl.appendChild(item);
+    });
+    document.getElementById('current-layer-name-display').textContent = getActiveLayer().name;
+}
+
+function addLayer() {
+    const newNum = layers.length + 1;
+    const layerId = 'layer-' + Date.now();
+    const layerName = `${newNum}階`;
+    layers.push({ id: layerId, name: layerName, elements: [] });
+    switchLayer(layerId);
+}
+
+function switchLayer(layerId) {
+    activeLayerId = layerId;
+    selectedElement = null;
+    renderLayerList();
+    safeDraw();
+}
+
+function renameLayer(layerId) {
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer) return;
+    const newName = prompt('階層名を入力してください:', layer.name);
+    if (newName && newName.trim() !== '') {
+        layer.name = newName.trim();
+        renderLayerList();
+    }
+}
+
+function deleteLayer(layerId) {
+    if (layers.length <= 1) return;
+    if (!confirm('この階層を削除しますか？')) return;
+    layers = layers.filter(l => l.id !== layerId);
+    if (activeLayerId === layerId) {
+        activeLayerId = layers[0].id;
+        selectedElement = null;
+    }
+    renderLayerList();
+    safeDraw();
+}
+
+function getVerticesAt(el, posX, posY, deg) {
+    const x = num(posX, 0);
+    const y = num(posY, 0);
+    const rad = (num(deg, 0) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    let localPoints = [];
+    if (el.type === 'square') {
+        const half = SIDE_LEN / 2;
+        localPoints = [
+            { x: -half, y: -half }, { x: half, y: -half },
+            { x: half, y: half }, { x: -half, y: half }
+        ];
+    } else if (el.type === 'triangle') {
+        const h = (Math.sqrt(3) / 2) * SIDE_LEN;
+        const cy = h / 3;
+        localPoints = [
+            { x: 0, y: -(h - cy) },
+            { x: SIDE_LEN / 2, y: cy },
+            { x: -SIDE_LEN / 2, y: cy }
+        ];
+    } else if (el.type === 'bar') {
+        const halfL = BAR_LENGTH / 2;
+        const halfT = BAR_THICKNESS / 2;
+        localPoints = [
+            { x: -halfL, y: -halfT }, { x: halfL, y: -halfT },
+            { x: halfL, y: halfT }, { x: -halfL, y: halfT }
+        ];
+    } else {
+        return [{ x, y }];
+    }
+    return localPoints.map(p => ({
+        x: x + (p.x * cos - p.y * sin),
+        y: y + (p.x * sin + p.y * cos)
+    }));
+}
+
+function getVertices(el) {
+    return getVerticesAt(el, el.x, el.y, el.rotation);
+}
+
+function getEdges(verts) {
+    const edges = [];
+    if (!verts || verts.length < 2) return edges;
+    for (let i = 0; i < verts.length; i++) {
+        const p1 = verts[i];
+        const p2 = verts[(i + 1) % verts.length];
+        const angle = (Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI) + 360) % 360;
+        edges.push({ p1, p2, angle });
+    }
+    return edges;
+}
+
+function getRotateHandlePos(el) {
+    const rad = (num(el.rotation, 0) * Math.PI) / 180;
+    return {
+        x: num(el.x) + Math.cos(rad - Math.PI / 2) * ROTATE_HANDLE_OFFSET,
+        y: num(el.y) + Math.sin(rad - Math.PI / 2) * ROTATE_HANDLE_OFFSET
+    };
+}
+
+function applySnap(el) {
+    if (!el || el.type === 'bar') return;
+    const currentElements = getActiveLayer().elements;
+    if (el.type === 'icon' || el.type === 'flag') {
+        let minD = SNAP_DIST;
+        let bestDx = 0, bestDy = 0;
+        let snapped = false;
+        currentElements.forEach(other => {
+            if (other.id === el.id) return;
+            let targets = [];
+            if (other.type === 'square' || other.type === 'triangle') {
+                targets.push({ x: num(other.x), y: num(other.y) });
+                targets.push(...getVertices(other));
+            }
+            targets.forEach(t => {
+                const dx = t.x - el.x;
+                const dy = t.y - el.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist < minD) {
+                    minD = dist;
+                    bestDx = dx;
+                    bestDy = dy;
+                    snapped = true;
+                }
+            });
+        });
+        if (snapped) {
+            el.x += bestDx;
+            el.y += bestDy;
+        }
+        return;
+    }
+    let bestMatch = null;
+    let minErr = SNAP_DIST;
+    currentElements.forEach(other => {
+        if (other.id === el.id || other.type === 'icon' || other.type === 'flag' || other.type === 'bar') return;
+        const otherVerts = getVertices(other);
+        const otherEdges = getEdges(otherVerts);
+        otherEdges.forEach(oEdge => {
+            const rotCandidates = [oEdge.angle, oEdge.angle + 180, oEdge.angle + 90, oEdge.angle - 90];
+            rotCandidates.forEach(rawRot => {
+                const rot = (Math.round(rawRot) % 360 + 360) % 360;
+                const testVerts = getVerticesAt(el, el.x, el.y, rot);
+                const testEdges = getEdges(testVerts);
+                testEdges.forEach(tEdge => {
+                    const d1 = Math.hypot(oEdge.p1.x - tEdge.p2.x, oEdge.p1.y - tEdge.p2.y);
+                    const d2 = Math.hypot(oEdge.p2.x - tEdge.p1.x, oEdge.p2.y - tEdge.p1.y);
+                    const d3 = Math.hypot(oEdge.p1.x - tEdge.p1.x, oEdge.p1.y - tEdge.p1.y);
+                    const d4 = Math.hypot(oEdge.p2.x - tEdge.p2.x, oEdge.p2.y - tEdge.p2.y);
+                    let dx = 0, dy = 0, err = 999;
+                    if ((d1 + d2) < (d3 + d4)) {
+                        err = d1 + d2;
+                        dx = oEdge.p1.x - tEdge.p2.x;
+                        dy = oEdge.p1.y - tEdge.p2.y;
+                    } else {
+                        err = d3 + d4;
+                        dx = oEdge.p1.x - tEdge.p1.x;
+                        dy = oEdge.p1.y - tEdge.p1.y;
+                    }
+                    if (err < minErr) {
+                        minErr = err;
+                        bestMatch = { rot, dx, dy };
+                    }
+                });
+            });
+        });
+    });
+    if (bestMatch && isFinite(bestMatch.dx) && isFinite(bestMatch.dy)) {
+        el.rotation = bestMatch.rot;
+        el.x += bestMatch.dx;
+        el.y += bestMatch.dy;
+    }
+}
+
+function rotateSelected() {
+    if (!selectedElement) return;
+    selectedElement.rotation = (num(selectedElement.rotation) + 15) % 360;
+    safeDraw();
+}
+
+function deleteSelected() {
+    if (!selectedElement) return;
+    const currentLayer = getActiveLayer();
+    currentLayer.elements = currentLayer.elements.filter(el => el.id !== selectedElement.id);
+    selectedElement = null;
+    safeDraw();
+}
+
+function clearAll() {
+    const currentLayer = getActiveLayer();
+    currentLayer.elements = [];
+    selectedElement = null;
+    safeDraw();
+}
+
+function saveToFile() {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(layers, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    a.setAttribute("download", "layout_layers_data.json");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+function loadFromFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const loadedData = JSON.parse(e.target.result);
+            if (Array.isArray(loadedData) && loadedData.length > 0) {
+                if (loadedData[0].type && !loadedData[0].elements) {
+                    layers = [{ id: 'layer-1', name: '1階', elements: loadedData }];
+                } else {
+                    layers = loadedData;
+                }
+                activeLayerId = layers[0].id;
+                selectedElement = null;
+                let maxId = 0;
+                layers.forEach(l => {
+                    l.elements.forEach(el => {
+                        if (el.id > maxId) maxId = el.id;
+                    });
+                });
+                idCounter = maxId + 1;
+                renderLayerList();
+                safeDraw();
+                alert("階層レイヤーを読み込みました");
+            }
+        } catch (err) {
+            alert("読み込みエラー");
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
+    else if (e.key === 'r' || e.key === 'R') rotateSelected();
+});
+
+canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    if (e.button === 2 || e.button === 1 || isPanMode) {
+        isPanning = true;
+        panStart.x = sx - panX;
+        panStart.y = sy - panY;
+        canvas.style.cursor = 'grabbing';
+        return;
+    }
+    if (e.button !== 0) return;
+    isDragging = false;
+    isRotating = false;
+    isDraggingFromPalette = false;
+    if (sy <= PALETTE_HEIGHT) {
+        for (let item of PALETTE_ITEMS) {
+            if (Math.hypot(sx - item.x, sy - item.y) < 30) {
+                const worldPos = screenToWorld(sx, sy);
+                const newEl = {
+                    id: getNextId(),
+                    type: item.type,
+                    x: worldPos.x,
+                    y: worldPos.y,
+                    rotation: 0
+                };
+                getActiveLayer().elements.push(newEl);
+                selectedElement = newEl;
+                isDragging = true;
+                isDraggingFromPalette = true;
+                dragOffset.x = 0;
+                dragOffset.y = 0;
+                safeDraw();
+                return;
+            }
+        }
+    }
+    const world = screenToWorld(sx, sy);
+    const currentElements = getActiveLayer().elements;
+    if (selectedElement) {
+        const handlePos = getRotateHandlePos(selectedElement);
+        if (Math.hypot(world.x - handlePos.x, world.y - handlePos.y) <= (HANDLE_RADIUS + 4) / zoom) {
+            isRotating = true;
+            safeDraw();
+            return;
+        }
+    }
+    let newlySelected = null;
+    for (let i = currentElements.length - 1; i >= 0; i--) {
+        const el = currentElements[i];
+        if (el.type === 'icon' || el.type === 'flag') {
+            if (Math.hypot(world.x - num(el.x), world.y - num(el.y)) < 20 / zoom) {
+                newlySelected = el;
+                break;
+            }
+        } else if (pointInPolygon(world, getVertices(el))) {
+            newlySelected = el;
+            break;
+        }
+    }
+    selectedElement = newlySelected;
+    if (selectedElement) {
+        isDragging = true;
+        dragOffset.x = world.x - num(selectedElement.x);
+        dragOffset.y = world.y - num(selectedElement.y);
+        getActiveLayer().elements = currentElements.filter(el => el.id !== selectedElement.id);
+        getActiveLayer().elements.push(selectedElement);
+    }
+    safeDraw();
+});
+
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    if (isPanning) {
+        panX = sx - panStart.x;
+        panY = sy - panStart.y;
+        safeDraw();
+        return;
+    }
+    const world = screenToWorld(sx, sy);
+    if (isRotating && selectedElement) {
+        const dx = world.x - num(selectedElement.x);
+        const dy = world.y - num(selectedElement.y);
+        let angleRad = Math.atan2(dy, dx) + Math.PI / 2;
+        let angleDeg = (angleRad * (180 / Math.PI) + 360) % 360;
+        selectedElement.rotation = Math.round(angleDeg / 15) * 15 % 360;
+        safeDraw();
+    }
+    if (isDragging && selectedElement) {
+        selectedElement.x = world.x - dragOffset.x;
+        selectedElement.y = world.y - dragOffset.y;
+        if (sy > PALETTE_HEIGHT) {
+            applySnap(selectedElement);
+        }
+        safeDraw();
+    }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+    if (isPanning) {
+        isPanning = false;
+        canvas.style.cursor = isPanMode ? 'grab' : 'crosshair';
+        return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const sy = e.clientY - rect.top;
+    if (isDraggingFromPalette && selectedElement && sy <= PALETTE_HEIGHT) {
+        deleteSelected();
+    }
+    isDragging = false;
+    isRotating = false;
+    isDraggingFromPalette = false;
+    safeDraw();
+});
+
+function pointInPolygon(point, vs) {
+    let x = point.x, y = point.y, inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        let xi = vs[i].x, yi = vs[i].y;
+        let xj = vs[j].x, yj = vs[j].y;
+        let intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+function isShapesTouching(s1, s2) {
+    const v1 = getVertices(s1);
+    const v2 = getVertices(s2);
+    for (let p of v1) { if (pointInPolygon(p, v2)) return true; }
+    for (let p of v2) { if (pointInPolygon(p, v1)) return true; }
+    const e1 = getEdges(v1);
+    const e2 = getEdges(v2);
+    for (let line1 of e1) {
+        for (let line2 of e2) {
+            if (isLineIntersect(line1.p1, line1.p2, line2.p1, line2.p2)) return true;
+        }
+    }
+    return false;
+}
+
+function isLineIntersect(p1, p2, p3, p4) {
+    function ccw(A, B, C) {
+        return (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+    }
+    return (ccw(p1, p3, p4) !== ccw(p2, p3, p4)) &&
+        (ccw(p1, p2, p3) !== ccw(p1, p2, p4));
+}
+
+function distToSegmentSq(p, v, w) {
+    const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+    if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2;
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return (p.x - (v.x + t * (w.x - v.x))) ** 2 + (p.y - (v.y + t * (w.y - v.y))) ** 2;
+}
+
+function distToShapeGroup(pt, shapeGroup) {
+    if (!shapeGroup || shapeGroup.length === 0) return Infinity;
+    for (let shape of shapeGroup) {
+        const verts = getVertices(shape);
+        if (pointInPolygon(pt, verts)) return 0;
+    }
+    let minSq = Infinity;
+    for (let shape of shapeGroup) {
+        const verts = getVertices(shape);
+        for (let i = 0; i < verts.length; i++) {
+            const v1 = verts[i];
+            const v2 = verts[(i + 1) % verts.length];
+            const sq = distToSegmentSq(pt, v1, v2);
+            if (sq < minSq) minSq = sq;
+        }
+    }
+    return Math.sqrt(minSq);
+}
+
+function safeDraw() {
+    try {
+        draw();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+function computeFlagGroups() {
+    const currentElements = getActiveLayer().elements;
+    const flags = currentElements.filter(el => el.type === 'flag');
+    const shapes = currentElements.filter(el => el.type === 'square' || el.type === 'triangle');
+    const shapeToFlagMap = new Map();
+    const flagToGroupMap = new Map();
+    flags.forEach(flag => {
+        let directShapes = shapes.filter(s =>
+            pointInPolygon({ x: num(flag.x), y: num(flag.y) }, getVertices(s)));
+        let managedShapes = new Set(directShapes);
+        let queue = [...directShapes];
+        while (queue.length > 0) {
+            let curr = queue.shift();
+            shapes.forEach(other => {
+                if (!managedShapes.has(other) && isShapesTouching(curr, other)) {
+                    managedShapes.add(other);
+                    queue.push(other);
+                }
+            });
+        }
+        const groupArray = Array.from(managedShapes);
+        flagToGroupMap.set(flag.id, groupArray);
+        groupArray.forEach(s => {
+            if (!shapeToFlagMap.has(s.id)) shapeToFlagMap.set(s.id, []);
+            shapeToFlagMap.get(s.id).push(flag);
+        });
+    });
+    return { flags, shapes, shapeToFlagMap, flagToGroupMap };
+}
+
+function draw() {
+    ctx.clearRect(0, 0, width, height);
+    const showOrigin = document.getElementById('show-origin').checked;
+    const showGhost = document.getElementById('show-ghost').checked;
+    const showFov = document.getElementById('show-fov').checked;
+    const showArea = document.getElementById('show-area').checked;
+    const showFlagArea = document.getElementById('show-flag-area').checked;
+    const { flags, shapes, shapeToFlagMap, flagToGroupMap } = computeFlagGroups();
+    ctx.save();
+    ctx.translate(panX, panY);
+    ctx.scale(zoom, zoom);
+    ctx.strokeStyle = '#f0f0f0';
+    ctx.lineWidth = 1 / zoom;
+    const worldTopLeft = screenToWorld(0, 0);
+    const worldBottomRight = screenToWorld(width, height);
+    const startX = Math.floor(worldTopLeft.x / (SCALE * 5)) * (SCALE * 5);
+    const endX = Math.ceil(worldBottomRight.x / (SCALE * 5)) * (SCALE * 5);
+    const startY = Math.floor(worldTopLeft.y / (SCALE * 5)) * (SCALE * 5);
+    const endY = Math.ceil(worldBottomRight.y / (SCALE * 5)) * (SCALE * 5);
+    for (let x = startX; x <= endX; x += SCALE * 5) {
+        ctx.beginPath();
+        ctx.moveTo(x, startY);
+        ctx.lineTo(x, endY);
+        ctx.stroke();
+    }
+    for (let y = startY; y <= endY; y += SCALE * 5) {
+        ctx.beginPath();
+        ctx.moveTo(startX, y);
+        ctx.lineTo(endX, y);
+        ctx.stroke();
+    }
+    const activeIdx = layers.findIndex(l => l.id === activeLayerId);
+    if (showOrigin) {
+        ctx.save();
+        ctx.strokeStyle = '#ff4d4f';
+        ctx.lineWidth = 2 / zoom;
+        ctx.beginPath();
+        ctx.moveTo(-15 / zoom, 0);
+        ctx.lineTo(15 / zoom, 0);
+        ctx.moveTo(0, -15 / zoom);
+        ctx.lineTo(0, 15 / zoom);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, 4 / zoom, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4d4f';
+        ctx.fill();
+        ctx.font = `bold ${11 / zoom}px monospace`;
+        ctx.textAlign = 'left';
+        ctx.fillText('(0,0)', 6 / zoom, -6 / zoom);
+        ctx.restore();
+    }
+    if (showGhost && activeIdx > 0) {
+        const lowerLayer = layers[activeIdx - 1];
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        lowerLayer.elements.forEach(el => {
+            const x = num(el.x), y = num(el.y);
+            if (el.type === 'square' || el.type === 'triangle' || el.type === 'bar') {
+                const verts = getVertices(el);
+                if (verts.length > 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(verts[0].x, verts[0].y);
+                    for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+                    ctx.closePath();
+                    ctx.fillStyle = '#555';
+                    ctx.fill();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1.5 / zoom;
+                    ctx.stroke();
+                }
+            } else if (el.type === 'icon' || el.type === 'flag') {
+                ctx.beginPath();
+                ctx.arc(x, y, 9, 0, Math.PI * 2);
+                ctx.fillStyle = '#666';
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1.5 / zoom;
+                ctx.stroke();
+            }
+        });
+        ctx.restore();
+    }
+    if (showFlagArea) {
+        flags.forEach(flag => {
+            const group = flagToGroupMap.get(flag.id) || [];
+            ctx.save();
+            if (group.length > 0) {
+                group.forEach(shape => {
+                    const verts = getVertices(shape);
+                    if (verts.length > 0) {
+                        verts.forEach(v => {
+                            ctx.beginPath();
+                            ctx.arc(v.x, v.y, FLAG_AREA_RADIUS, 0, Math.PI * 2);
+                            ctx.fillStyle = 'rgba(114, 46, 209, 0.03)';
+                            ctx.fill();
+                            ctx.strokeStyle = 'rgba(114, 46, 209, 0.15)';
+                            ctx.lineWidth = 1 / zoom;
+                            ctx.stroke();
+                        });
+                    }
+                });
+            } else {
+                ctx.beginPath();
+                ctx.arc(num(flag.x), num(flag.y), FLAG_AREA_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(114, 46, 209, 0.03)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(114, 46, 209, 0.3)';
+                ctx.setLineDash([6 / zoom, 6 / zoom]);
+                ctx.lineWidth = 1 / zoom;
+                ctx.stroke();
+            }
+            ctx.restore();
+        });
+    }
+    const currentElements = getActiveLayer().elements;
+    currentElements.forEach(el => {
+        ctx.save();
+        const isSel = selectedElement && selectedElement.id === el.id;
+        const x = num(el.x), y = num(el.y);
+        if (el.type === 'square' || el.type === 'triangle') {
+            const verts = getVertices(el);
+            if (verts.length > 0) {
+                const managingFlags = shapeToFlagMap.get(el.id) || [];
+                const isManaged = managingFlags.length > 0;
+                ctx.beginPath();
+                ctx.moveTo(verts[0].x, verts[0].y);
+                for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+                ctx.closePath();
+                ctx.fillStyle = isManaged
+                    ? 'rgba(114, 46, 209, 0.35)'
+                    : (el.type === 'square' ? 'rgba(74, 144, 226, 0.35)' : 'rgba(80, 200, 120, 0.35)');
+                ctx.fill();
+                ctx.strokeStyle = isSel
+                    ? '#1d63b8'
+                    : (isManaged ? '#722ed1' : (el.type === 'square' ? '#4a90e2' : '#50c878'));
+                ctx.lineWidth = (isSel ? 3 : 2) / zoom;
+                ctx.stroke();
+            }
+        } else if (el.type === 'bar') {
+            const verts = getVertices(el);
+            if (verts.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(verts[0].x, verts[0].y);
+                for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].x, verts[i].y);
+                ctx.closePath();
+                ctx.fillStyle = isSel ? 'rgba(250, 140, 22, 0.6)' : 'rgba(217, 119, 6, 0.6)';
+                ctx.fill();
+                ctx.strokeStyle = isSel ? '#d97706' : '#b45309';
+                ctx.lineWidth = (isSel ? 3 : 2) / zoom;
+                ctx.stroke();
+            }
+        } else if (el.type === 'icon') {
+            const rad = (num(el.rotation) * Math.PI) / 180;
+            if (showArea) {
+                ctx.beginPath();
+                ctx.arc(x, y, AREA_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(24, 144, 255, 0.05)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(24, 144, 255, 0.3)';
+                ctx.setLineDash([4 / zoom, 4 / zoom]);
+                ctx.lineWidth = 1 / zoom;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            if (showFov) {
+                ctx.beginPath();
+                ctx.arc(x, y, FOV_RADIUS, rad - Math.PI / 2, rad + Math.PI / 2);
+                ctx.lineTo(x, y);
+                ctx.closePath();
+                ctx.fillStyle = isSel ? 'rgba(255, 77, 79, 0.25)' : 'rgba(255, 169, 64, 0.2)';
+                ctx.fill();
+                ctx.strokeStyle = isSel ? '#ff4d4f' : '#ffa940';
+                ctx.lineWidth = 1.5 / zoom;
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(x, y, 9, 0, Math.PI * 2);
+            ctx.fillStyle = isSel ? '#ff4d4f' : '#fa8c16';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2 / zoom;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + Math.cos(rad) * 14, y + Math.sin(rad) * 14);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2 / zoom;
+            ctx.stroke();
+        } else if (el.type === 'flag') {
+            ctx.beginPath();
+            ctx.moveTo(x - 4, y + 8);
+            ctx.lineTo(x - 4, y - 12);
+            ctx.strokeStyle = '#434343';
+            ctx.lineWidth = 2 / zoom;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x - 4, y - 12);
+            ctx.lineTo(x + 10, y - 7);
+            ctx.lineTo(x - 4, y - 2);
+            ctx.closePath();
+            ctx.fillStyle = isSel ? '#ff4d4f' : '#722ed1';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(x, y, 10, 0, Math.PI * 2);
+            ctx.strokeStyle = isSel ? '#ff4d4f' : '#722ed1';
+            ctx.lineWidth = 1.5 / zoom;
+            ctx.stroke();
+        }
+        if (isSel) {
+            const handlePos = getRotateHandlePos(el);
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(handlePos.x, handlePos.y);
+            ctx.strokeStyle = '#1890ff';
+            ctx.lineWidth = 1.5 / zoom;
+            ctx.setLineDash([3 / zoom, 3 / zoom]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(handlePos.x, handlePos.y, HANDLE_RADIUS / zoom, 0, Math.PI * 2);
+            ctx.fillStyle = isRotating ? '#ff4d4f' : '#1890ff';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2 / zoom;
+            ctx.stroke();
+            ctx.fillStyle = '#fff';
+            ctx.font = `bold ${11 / zoom}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('↻', handlePos.x, handlePos.y);
+        }
+        ctx.restore();
+    });
+    drawCounts(flags, shapes, shapeToFlagMap, flagToGroupMap);
+    ctx.restore();
+    drawPalette();
+}
+
+function drawPalette() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillRect(0, 0, width, PALETTE_HEIGHT);
+    ctx.strokeStyle = '#d0d5dd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, PALETTE_HEIGHT);
+    ctx.lineTo(width, PALETTE_HEIGHT);
+    ctx.stroke();
+    ctx.fillStyle = '#888';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('ドラッグして配置', 15, 15);
+    PALETTE_ITEMS.forEach(item => {
+        ctx.save();
+        const px = item.x, py = item.y;
+        if (item.type === 'square') {
+            const half = SIDE_LEN / 2;
+            ctx.fillStyle = 'rgba(74, 144, 226, 0.6)';
+            ctx.fillRect(px - half, py - half - 5, SIDE_LEN, SIDE_LEN);
+            ctx.strokeStyle = '#4a90e2';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(px - half, py - half - 5, SIDE_LEN, SIDE_LEN);
+        } else if (item.type === 'triangle') {
+            const h = (Math.sqrt(3) / 2) * SIDE_LEN;
+            const cy = h / 3;
+            ctx.beginPath();
+            ctx.moveTo(px, py - (h - cy) - 5);
+            ctx.lineTo(px + SIDE_LEN / 2, py + cy - 5);
+            ctx.lineTo(px - SIDE_LEN / 2, py + cy - 5);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(80, 200, 120, 0.6)';
+            ctx.fill();
+            ctx.strokeStyle = '#50c878';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        } else if (item.type === 'bar') {
+            const halfL = BAR_LENGTH / 2;
+            const halfT = BAR_THICKNESS / 2;
+            ctx.fillStyle = 'rgba(217, 119, 6, 0.6)';
+            ctx.fillRect(px - halfL, py - halfT - 5, BAR_LENGTH, BAR_THICKNESS);
+            ctx.strokeStyle = '#b45309';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(px - halfL, py - halfT - 5, BAR_LENGTH, BAR_THICKNESS);
+        } else if (item.type === 'icon') {
+            ctx.beginPath();
+            ctx.arc(px, py - 5, 7, 0, Math.PI * 2);
+            ctx.fillStyle = '#fa8c16';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        } else if (item.type === 'flag') {
+            ctx.beginPath();
+            ctx.moveTo(px - 3, py + 3);
+            ctx.lineTo(px - 3, py - 13);
+            ctx.strokeStyle = '#434343';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(px - 3, py - 13);
+            ctx.lineTo(px + 8, py - 9);
+            ctx.lineTo(px - 3, py - 5);
+            ctx.closePath();
+            ctx.fillStyle = '#722ed1';
+            ctx.fill();
+        }
+        ctx.fillStyle = '#444';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.label, px, py + 22);
+        ctx.restore();
+    });
+    ctx.restore();
+}
+
+function drawCounts(flags, shapes, shapeToFlagMap, flagToGroupMap) {
+    const currentElements = getActiveLayer().elements;
+    const icons = currentElements.filter(el => el.type === 'icon');
+    const listEl = document.getElementById('measurements');
+    if (icons.length === 0 && flags.length === 0) {
+        listEl.innerHTML = '<div style="color: #999; text-align: center;">要素が配置されていません</div>';
+        return;
+    }
+    let html = '';
+    flags.forEach(f => {
+        const group = flagToGroupMap.get(f.id) || [];
+        let flagsInRange = 0;
+        flags.forEach(otherF => {
+            let dist = Infinity;
+            if (group.length > 0) {
+                dist = distToShapeGroup({ x: num(otherF.x), y: num(otherF.y) }, group);
+            } else {
+                dist = Math.hypot(num(otherF.x) - num(f.x), num(otherF.y) - num(f.y));
+            }
+            if (dist <= FLAG_AREA_RADIUS + 0.1) {
+                flagsInRange++;
+            }
+        });
+        const isAlert = flagsInRange > 1;
+        const color = isAlert ? '#ff4d4f' : '#722ed1';
+        ctx.fillStyle = color;
+        ctx.font = `bold ${11 / zoom}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`🚩 旗: ${flagsInRange}個`, num(f.x), num(f.y) - 16 / zoom);
+        html += `<div class="measure-item"><strong>🚩 旗 #${f.id}</strong> <span class="count-tag ${isAlert ? 'alert' : ''}">23m圏内: ${flagsInRange}個</span></div>`;
+    });
+    icons.forEach(a => {
+        let count = 0;
+        icons.forEach(b => {
+            if (Math.hypot(num(b.x) - num(a.x), num(b.y) - num(a.y)) <= AREA_RADIUS + 0.1) count++;
+        });
+        ctx.fillStyle = '#1890ff';
+        ctx.font = `bold ${11 / zoom}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(`👁️ 範囲: ${count}個`, num(a.x), num(a.y) - 14 / zoom);
+        html += `<div class="measure-item"><strong>👁️ アイコン #${a.id}</strong> <span class="count-tag">40m圏内: ${count}個</span></div>`;
+    });
+    listEl.innerHTML = html;
+}
+
+renderLayerList();
+resetView();
+</script>
+</body>
+</html>
